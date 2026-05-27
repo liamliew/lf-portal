@@ -59,25 +59,46 @@ export async function getFolderBreadcrumb(folderId: string): Promise<NASFolder[]
   const { userId } = await auth()
   if (!userId) throw new Error('Unauthorized')
 
-  const crumbs: NASFolder[] = []
-  let currentId: string | null = folderId
+  /*
+   * Requires this function in Supabase (run once via SQL Editor):
+   *
+   * CREATE OR REPLACE FUNCTION get_folder_breadcrumb(folder_id UUID)
+   * RETURNS TABLE(id UUID, name TEXT, parent_id UUID, created_by TEXT,
+   *               drive_id UUID, created_at TIMESTAMPTZ, depth INT) AS $$
+   * WITH RECURSIVE breadcrumb AS (
+   *   SELECT id, name, parent_id, created_by, drive_id, created_at, 0 AS depth
+   *   FROM nas_folders WHERE id = folder_id
+   *   UNION ALL
+   *   SELECT f.id, f.name, f.parent_id, f.created_by, f.drive_id, f.created_at, b.depth + 1
+   *   FROM nas_folders f JOIN breadcrumb b ON f.id = b.parent_id
+   * )
+   * SELECT * FROM breadcrumb ORDER BY depth DESC;
+   * $$ LANGUAGE sql STABLE;
+   */
+  const { data, error } = await supabase
+    .rpc('get_folder_breadcrumb', { folder_id: folderId })
 
-  while (currentId) {
-    const { data, error } = await supabase
-      .from('nas_folders')
-      .select('*')
-      .eq('id', currentId)
-      .eq('created_by', userId)
-      .returns<NASFolder>()
-      .single()
-
-    if (error || !data) break
-    const folder = data as NASFolder
-    crumbs.unshift(folder)
-    currentId = folder.parent_id ?? null
+  if (error) {
+    // Fall back to iterative approach if RPC not yet created
+    const crumbs: NASFolder[] = []
+    let currentId: string | null = folderId
+    while (currentId) {
+      const { data: row, error: rowErr } = await supabase
+        .from('nas_folders')
+        .select('*')
+        .eq('id', currentId)
+        .eq('created_by', userId)
+        .returns<NASFolder>()
+        .single()
+      if (rowErr || !row) break
+      const folder = row as NASFolder
+      crumbs.unshift(folder)
+      currentId = folder.parent_id ?? null
+    }
+    return crumbs
   }
 
-  return crumbs
+  return ((data ?? []) as NASFolder[]).filter((f) => f.created_by === userId)
 }
 
 export async function createFolder(name: string, parentId?: string, driveId?: string): Promise<NASFolder> {

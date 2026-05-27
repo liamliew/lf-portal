@@ -3,6 +3,17 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { Icon } from "@/components/icon";
+import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { deleteShare } from "@/app/actions/shares";
 import { useRouter } from "next/navigation";
 
@@ -21,20 +32,24 @@ export function AllSharesClient({ shares }: { shares: ShareRow[] }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [copied, setCopied] = useState<string | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<ShareRow | null>(null);
 
   const now = new Date();
 
   const isExpired = (s: ShareRow) =>
     !!s.expires_at && new Date(s.expires_at) < now;
 
-  const handleRevoke = (id: string) => {
-    if (!confirm("Revoke this share link? It will no longer be accessible.")) return;
+  const confirmRevoke = () => {
+    if (!revokeTarget) return;
+    const id = revokeTarget.id;
+    setRevokeTarget(null);
     startTransition(async () => {
       try {
         await deleteShare(id);
+        toast.success("Share link revoked");
         router.refresh();
       } catch {
-        alert("Failed to revoke share link");
+        toast.error("Failed to revoke share link");
       }
     });
   };
@@ -42,6 +57,7 @@ export function AllSharesClient({ shares }: { shares: ShareRow[] }) {
   const handleCopy = (token: string) => {
     navigator.clipboard.writeText(`${window.location.origin}/share/${token}`);
     setCopied(token);
+    toast.success("Copied to clipboard");
     setTimeout(() => setCopied(null), 2000);
   };
 
@@ -78,14 +94,14 @@ export function AllSharesClient({ shares }: { shares: ShareRow[] }) {
         )}
 
         {shares.map((s) => {
-          const expired = isExpired(s);
+          const exp = isExpired(s);
           return (
             <div
               key={s.id}
               className="file-row"
               style={{
                 gridTemplateColumns: "1.2fr 1.4fr 80px 80px 120px 120px 100px",
-                opacity: expired ? 0.5 : 1,
+                opacity: exp ? 0.5 : 1,
               }}
             >
               <div>
@@ -127,10 +143,10 @@ export function AllSharesClient({ shares }: { shares: ShareRow[] }) {
               </div>
               <div
                 className="mono"
-                style={{ fontSize: 12, color: expired ? "var(--error)" : "var(--text-muted)" }}
+                style={{ fontSize: 12, color: exp ? "var(--error)" : "var(--text-muted)" }}
               >
                 {s.expires_at ? new Date(s.expires_at).toLocaleDateString() : "Never"}
-                {expired && " (expired)"}
+                {exp && " (expired)"}
               </div>
               <div className="mono" style={{ fontSize: 12, color: "var(--text-muted)" }}>
                 {new Date(s.created_at).toLocaleDateString()}
@@ -140,7 +156,7 @@ export function AllSharesClient({ shares }: { shares: ShareRow[] }) {
                   type="button"
                   className="file-action"
                   title="Revoke"
-                  onClick={() => handleRevoke(s.id)}
+                  onClick={() => setRevokeTarget(s)}
                   style={{ color: "var(--error)" }}
                 >
                   <Icon name="trash" size={14} />
@@ -150,6 +166,23 @@ export function AllSharesClient({ shares }: { shares: ShareRow[] }) {
           );
         })}
       </div>
+
+      <AlertDialog open={!!revokeTarget} onOpenChange={(v) => { if (!v) setRevokeTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Revoke share link?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This link will stop working immediately. It cannot be restored.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmRevoke} style={{ background: "var(--danger)" }}>
+              Revoke
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

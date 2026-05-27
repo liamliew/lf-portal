@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { useUser, useClerk } from "@clerk/nextjs";
 import {
   LayoutDashboard,
@@ -25,6 +26,9 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
@@ -67,6 +71,13 @@ const adminNav = [
 
 function NavItems() {
   const pathname = usePathname();
+  const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
+  const { state } = useSidebar();
+  const collapsed = state === "collapsed";
+
+  useEffect(() => {
+    setRecentProjects(getRecentProjects());
+  }, [pathname]);
 
   const isActive = (href: string, exact = false) => {
     if (exact) return pathname === href;
@@ -79,18 +90,48 @@ function NavItems() {
         <SidebarGroupLabel>Workspace</SidebarGroupLabel>
         <SidebarGroupContent>
           <SidebarMenu>
-            {workspaceNav.map((item) => (
-              <SidebarMenuItem key={item.id}>
-                <SidebarMenuButton
-                  isActive={isActive(item.href, item.exact)}
-                  tooltip={item.label}
-                  render={<Link href={item.href} />}
-                >
-                  <item.icon />
-                  <span>{item.label}</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
+            {workspaceNav.map((item) => {
+              if (item.id === "projects") {
+                return (
+                  <SidebarMenuItem key={item.id}>
+                    <SidebarMenuButton
+                      isActive={isActive(item.href)}
+                      tooltip={item.label}
+                      render={<Link href={item.href} />}
+                    >
+                      <item.icon />
+                      <span>{item.label}</span>
+                    </SidebarMenuButton>
+                    {!collapsed && recentProjects.length > 0 && (
+                      <SidebarMenuSub>
+                        {recentProjects.map((p) => (
+                          <SidebarMenuSubItem key={p.id}>
+                            <SidebarMenuSubButton
+                              isActive={pathname === `/dashboard/projects/${p.id}`}
+                              render={<Link href={`/dashboard/projects/${p.id}`} />}
+                            >
+                              <span>{p.name}</span>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                        ))}
+                      </SidebarMenuSub>
+                    )}
+                  </SidebarMenuItem>
+                );
+              }
+              return (
+                <SidebarMenuItem key={item.id}>
+                  <SidebarMenuButton
+                    isActive={isActive(item.href, item.exact)}
+                    tooltip={item.label}
+                    render={<Link href={item.href} />}
+                  >
+                    <item.icon />
+                    <span>{item.label}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              );
+            })}
           </SidebarMenu>
         </SidebarGroupContent>
       </SidebarGroup>

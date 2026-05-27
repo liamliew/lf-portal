@@ -1,6 +1,9 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import { Topbar } from "@/components/topbar";
+
+export const metadata: Metadata = { title: "Share Links — LF Creative" };
 import { supabase } from "@/lib/supabase";
 import { AllSharesClient } from "./shares-client";
 

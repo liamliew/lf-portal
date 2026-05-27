@@ -1,4 +1,7 @@
+import type { Metadata } from "next";
 import { Topbar } from "@/components/topbar";
+
+export const metadata: Metadata = { title: "Inbox — LF Creative" };
 
 export default function InboxPage() {
   return (

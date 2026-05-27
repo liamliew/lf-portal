@@ -143,13 +143,12 @@ export function FileDetailClient({ file, project, versions }: FileDetailClientPr
         </div>
       </div>
 
-      {openShare && (
-        <ShareModal
-          projectId={project.id}
-          onClose={() => setOpenShare(false)}
-          onSuccess={() => setOpenShare(false)}
-        />
-      )}
+      <ShareModal
+        open={openShare}
+        projectId={project.id}
+        onClose={() => setOpenShare(false)}
+        onSuccess={() => setOpenShare(false)}
+      />
     </div>
   );
 }

@@ -25,7 +25,7 @@ export default function SignInPage() {
 
         <div className="login-brand-foot">
           <span>© LF Creative · Brooklyn / London</span>
-          <a href="#">Status · all systems normal</a>
+          <span>Status · all systems normal</span>
         </div>
       </div>
 

@@ -34,12 +34,13 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const [isPending, startTransition] = useTransition();
   const debouncedQuery = useDebounce(query, 300);
 
-  useEffect(() => {
-    if (!open) {
+  const handleOpenChange = (next: boolean) => {
+    if (!next) {
       setQuery("");
       setResults(null);
     }
-  }, [open]);
+    onOpenChange(next);
+  };
 
   useEffect(() => {
     if (!debouncedQuery.trim()) {
@@ -69,7 +70,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     (results.projects.length > 0 || results.files.length > 0 || results.shares.length > 0);
 
   return (
-    <CommandDialog open={open} onOpenChange={onOpenChange} title="Search" description="Search projects, files, and share links">
+    <CommandDialog open={open} onOpenChange={handleOpenChange} title="Search" description="Search projects, files, and share links">
       <CommandInput
         placeholder="Search projects, files, share links…"
         value={query}

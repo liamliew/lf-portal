@@ -1,11 +1,22 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
+import { toast } from "sonner";
 import { Icon } from "./icon";
 import { createShare } from "@/app/actions/shares";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 interface ShareModalProps {
   projectId: string;
+  open: boolean;
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -34,7 +45,7 @@ function SwitchRow({
         id={id}
         role="switch"
         title={label}
-        aria-checked={checked ? "true" : "false"}
+        aria-checked={checked}
         className={"toggle" + (checked ? " on" : "")}
         onClick={() => onCheckedChange(!checked)}
       />
@@ -42,7 +53,7 @@ function SwitchRow({
   );
 }
 
-export function ShareModal({ projectId, onClose, onSuccess }: ShareModalProps) {
+export function ShareModal({ projectId, open, onClose, onSuccess }: ShareModalProps) {
   const [isPending, startTransition] = useTransition();
   const [name, setName] = useState("");
   const [expires, setExpires] = useState("14d");
@@ -52,7 +63,19 @@ export function ShareModal({ projectId, onClose, onSuccess }: ShareModalProps) {
   const [password, setPassword] = useState("");
   const [shareUrl, setShareUrl] = useState("");
 
-  const handleCreate = async () => {
+  useEffect(() => {
+    if (!open) {
+      setShareUrl("");
+      setName("");
+      setPassword("");
+      setPin("");
+      setUsePin(false);
+      setUsePassword(false);
+      setExpires("14d");
+    }
+  }, [open]);
+
+  const handleCreate = () => {
     startTransition(async () => {
       try {
         let expiresAt = null;
@@ -62,143 +85,108 @@ export function ShareModal({ projectId, onClose, onSuccess }: ShareModalProps) {
           d.setDate(d.getDate() + days);
           expiresAt = d.toISOString();
         }
-
         const res = await createShare(projectId, {
           password: usePassword && password ? password : undefined,
           pin: usePin && pin ? pin : undefined,
           expiresAt: expiresAt || undefined,
         });
-
         setShareUrl(res.shareUrl);
       } catch (err) {
-        console.error(err);
-        alert("Failed to create share link");
+        toast.error(err instanceof Error ? err.message : "Failed to create share link");
       }
     });
   };
 
-  if (shareUrl) {
-    return (
-      <div className="modal-back" onClick={onClose}>
-        <div className="modal" onClick={(e) => e.stopPropagation()}>
-          <div className="modal-h">
-            <h3>Share link created</h3>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
-          </div>
-          <div className="modal-body">
-            <div className="field">
+  const copyUrl = () => {
+    navigator.clipboard.writeText(window.location.origin + shareUrl);
+    toast.success("Copied to clipboard");
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent style={{ maxWidth: 480 }}>
+        {shareUrl ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>Share link created</DialogTitle>
+            </DialogHeader>
+            <div className="field" style={{ padding: "8px 0" }}>
               <label className="modal-field-label">Generated URL</label>
               <div style={{ display: "flex", gap: 6 }}>
-                <input
+                <Input
                   value={window.location.origin + shareUrl}
                   readOnly
                   className="mono"
-                  style={{ fontSize: 12, flex: 1 }}
+                  style={{ fontSize: 12 }}
                 />
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => {
-                    navigator.clipboard.writeText(window.location.origin + shareUrl);
-                    alert("Copied!");
-                  }}
-                >
+                <Button type="button" variant="outline" size="sm" onClick={copyUrl}>
                   <Icon name="copy" size={13} /><span>Copy</span>
-                </button>
+                </Button>
               </div>
             </div>
-          </div>
-          <div className="modal-foot">
-            <button type="button" className="btn btn-primary" onClick={onSuccess}>Done</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+            <DialogFooter>
+              <Button onClick={onSuccess}>Done</Button>
+            </DialogFooter>
+          </>
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle>Create share link</DialogTitle>
+            </DialogHeader>
 
-  return (
-    <div className="modal-back" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-h">
-          <h3>Create share link</h3>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
-        </div>
+            <div className="modal-body" style={{ padding: "4px 0" }}>
+              <div className="field">
+                <label className="mono" style={{ fontSize: 10.5, letterSpacing: "0.04em", textTransform: "uppercase", color: "var(--text-muted)" }}>
+                  Link name (internal)
+                </label>
+                <Input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Final Delivery"
+                />
+              </div>
 
-        <div className="modal-body">
-          <div className="field">
-            <label className="mono" style={{ fontSize: 10.5, letterSpacing: "0.04em", textTransform: "uppercase", color: "var(--text-muted)" }}>
-              Link name (internal)
-            </label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Final Delivery"
-            />
-          </div>
+              <div className="field">
+                <label className="mono" style={{ fontSize: 10.5, letterSpacing: "0.04em", textTransform: "uppercase", color: "var(--text-muted)" }}>
+                  Expires
+                </label>
+                <div className="tab-row" style={{ alignSelf: "flex-start" }}>
+                  {([ ["1d","24 h"],["7d","7 days"],["14d","14 days"],["30d","30 days"],["never","Never"] ] as const).map(([id, label]) => (
+                    <button type="button" key={id} className={expires === id ? "active" : ""} onClick={() => setExpires(id)}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-          <div className="field">
-            <label className="mono" style={{ fontSize: 10.5, letterSpacing: "0.04em", textTransform: "uppercase", color: "var(--text-muted)" }}>
-              Expires
-            </label>
-            <div className="tab-row" style={{ alignSelf: "flex-start" }}>
-              {([["1d", "24 h"], ["7d", "7 days"], ["14d", "14 days"], ["30d", "30 days"], ["never", "Never"]] as const).map(([id, label]) => (
-                <button type="button" key={id} className={expires === id ? "active" : ""} onClick={() => setExpires(id)}>
-                  {label}
-                </button>
-              ))}
+              <div style={{ borderTop: "1px solid var(--border)", margin: "2px 0" }} />
+
+              <div>
+                <SwitchRow id="pin-switch" label="Require PIN" sub="Ask for a 4-6 digit PIN" checked={usePin} onCheckedChange={setUsePin} />
+                {usePin && (
+                  <div className="field" style={{ marginTop: 8, paddingLeft: 12 }}>
+                    <Input type="text" placeholder="Enter 4-6 digit PIN" value={pin} onChange={(e) => setPin(e.target.value)} maxLength={6} />
+                  </div>
+                )}
+                <SwitchRow id="password-switch" label="Require Password" sub="Ask for a text password" checked={usePassword} onCheckedChange={setUsePassword} />
+                {usePassword && (
+                  <div className="field" style={{ marginTop: 8, paddingLeft: 12 }}>
+                    <Input type="text" placeholder="Enter password" value={password} onChange={(e) => setPassword(e.target.value)} />
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
 
-          <div style={{ borderTop: "1px solid var(--border)", margin: "2px 0" }} />
-
-          <div>
-            <SwitchRow
-              id="pin-switch"
-              label="Require PIN"
-              sub="Ask for a 4-6 digit PIN"
-              checked={usePin}
-              onCheckedChange={setUsePin}
-            />
-            {usePin && (
-              <div className="field" style={{ marginTop: 8, paddingLeft: 12 }}>
-                <input
-                  type="text"
-                  placeholder="Enter 4-6 digit PIN"
-                  value={pin}
-                  onChange={(e) => setPin(e.target.value)}
-                  maxLength={6}
-                />
-              </div>
-            )}
-
-            <SwitchRow
-              id="password-switch"
-              label="Require Password"
-              sub="Ask for a text password"
-              checked={usePassword}
-              onCheckedChange={setUsePassword}
-            />
-            {usePassword && (
-              <div className="field" style={{ marginTop: 8, paddingLeft: 12 }}>
-                <input
-                  type="text"
-                  placeholder="Enter password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="modal-foot">
-          <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
-          <button type="button" className="btn btn-primary" onClick={handleCreate} disabled={isPending}>
-            <Icon name="link" size={13} />
-            <span>{isPending ? "Creating..." : "Create link"}</span>
-          </button>
-        </div>
-      </div>
-    </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={onClose}>Cancel</Button>
+              <Button onClick={handleCreate} disabled={isPending}>
+                <Icon name="link" size={13} />
+                <span>{isPending ? "Creating…" : "Create link"}</span>
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -2,22 +2,35 @@ import { type NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getDriveClient } from '@/lib/drives'
 import { GetObjectCommand } from '@aws-sdk/client-s3'
+import bcrypt from 'bcryptjs'
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ token: string; fileId: string }> },
 ) {
   const { token, fileId } = await params
 
   const { data: share } = await supabase
     .from('project_shares')
-    .select('project_id, expires_at')
+    .select('project_id, expires_at, password_hash, pin')
     .eq('token', token)
     .single()
 
   if (!share) return new NextResponse('Invalid share link', { status: 404 })
   if (share.expires_at && new Date(share.expires_at) < new Date()) {
     return new NextResponse('Share link has expired', { status: 410 })
+  }
+
+  // Enforce password/PIN protection
+  if (share.password_hash) {
+    const supplied = req.headers.get('X-Share-Password') ?? ''
+    const ok = supplied && await bcrypt.compare(supplied, share.password_hash)
+    if (!ok) return NextResponse.json({ error: 'Invalid password or PIN' }, { status: 401 })
+  }
+  if (share.pin) {
+    const supplied = req.headers.get('X-Share-Pin') ?? ''
+    const ok = supplied && await bcrypt.compare(supplied, share.pin)
+    if (!ok) return NextResponse.json({ error: 'Invalid password or PIN' }, { status: 401 })
   }
 
   // Verify file belongs to this share's project

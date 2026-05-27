@@ -5,15 +5,26 @@ import { Icon } from "@/components/icon";
 import { ShareModal } from "@/components/share-modal";
 import { addRecentProject } from "@/components/sidebar";
 import {
-  uploadFileToProject,
   deleteFile,
   addExistingFileToProject,
   getAllFiles,
   type FileGroup,
 } from "@/app/actions/files";
+import { useUploadContext } from "@/contexts/upload-context";
 import { deleteShare } from "@/app/actions/shares";
 import { type Drive } from "@/lib/drives";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 function formatBytes(bytes: number, decimals = 2) {
   if (!+bytes) return '0 Bytes';
@@ -31,7 +42,7 @@ function FileRow({
   selected: boolean;
   onToggle: () => void;
   onDownload: (id: string) => void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string, filename: string) => void;
   isPending: boolean;
 }) {
   const f = group.latest;
@@ -69,7 +80,7 @@ function FileRow({
         <button type="button" className="file-action" title="Download" onClick={(e) => { e.preventDefault(); onDownload(f.id); }}>
           <Icon name="download" size={14} />
         </button>
-        <button type="button" className="file-action" title="Delete" onClick={(e) => { e.preventDefault(); onDelete(f.id); }} style={{ color: "var(--error)" }}>
+        <button type="button" className="file-action" title="Delete" onClick={(e) => { e.preventDefault(); onDelete(f.id, f.filename); }} style={{ color: "var(--error)" }}>
           <Icon name="trash" size={14} />
         </button>
       </div>
@@ -91,7 +102,7 @@ function NASPickerModal({
   const [attaching, setAttaching] = useState<string | null>(null);
 
   useEffect(() => {
-    getAllFiles().then(setNasFiles).catch(() => setNasFiles([]));
+    getAllFiles().then(({ groups }) => setNasFiles(groups)).catch(() => setNasFiles([]));
   }, []);
 
   const filtered = nasFiles?.filter((g) =>
@@ -104,7 +115,7 @@ function NASPickerModal({
       await addExistingFileToProject(projectId, rootId);
       onAttached();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to attach file");
+      toast.error(err instanceof Error ? err.message : "Failed to attach file");
     } finally {
       setAttaching(null);
     }
@@ -168,14 +179,15 @@ interface ProjectDetailClientProps {
 
 export function ProjectDetailClient({ project, fileGroups, shareLinks, drives }: ProjectDetailClientProps) {
   const router = useRouter();
+  const { addUpload } = useUploadContext();
   const [isPending, startTransition] = useTransition();
   const [tab, setTab] = useState<string>("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
   const [openShare, setOpenShare] = useState(false);
   const [openNasPicker, setOpenNasPicker] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
   const [selectedDriveId, setSelectedDriveId] = useState(drives[0]?.id ?? "");
+  const [deleteTarget, setDeleteTarget] = useState<{ type: "file" | "share"; id: string; label: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -193,51 +205,41 @@ export function ProjectDetailClient({ project, fileGroups, shareLinks, drives }:
     return true;
   });
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !selectedDriveId) return;
-
-    setIsUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      await uploadFileToProject(project.id, selectedDriveId, formData);
-      router.refresh();
-    } catch (err) {
-      console.error(err);
-      alert("Failed to upload file");
-    } finally {
-      setIsUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
+    addUpload(file, selectedDriveId, project.id);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  const handleDeleteFile = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this file from the NAS?")) return;
-    startTransition(async () => {
-      try {
-        await deleteFile(id);
-        router.refresh();
-      } catch (err) {
-        console.error(err);
-        alert("Failed to delete file");
-      }
-    });
+  const handleDeleteFile = (id: string, filename: string) => {
+    setDeleteTarget({ type: "file", id, label: filename });
   };
 
   const handleDownloadFile = (id: string) => {
     window.open(`/api/download/${id}`, "_blank");
   };
 
-  const handleRevokeShare = async (id: string) => {
-    if (!confirm("Are you sure you want to revoke this share link?")) return;
+  const handleRevokeShare = (id: string) => {
+    setDeleteTarget({ type: "share", id, label: "this share link" });
+  };
+
+  const confirmDelete = () => {
+    if (!deleteTarget) return;
+    const { type, id } = deleteTarget;
+    setDeleteTarget(null);
     startTransition(async () => {
       try {
-        await deleteShare(id);
+        if (type === "file") {
+          await deleteFile(id);
+          toast.success("File deleted");
+        } else {
+          await deleteShare(id);
+          toast.success("Share link revoked");
+        }
         router.refresh();
       } catch (err) {
-        console.error(err);
-        alert("Failed to revoke share link");
+        toast.error(err instanceof Error ? err.message : "Action failed");
       }
     });
   };
@@ -292,9 +294,9 @@ export function ProjectDetailClient({ project, fileGroups, shareLinks, drives }:
               type="button"
               className="btn btn-primary btn-sm"
               onClick={() => fileInputRef.current?.click()}
-              disabled={isUploading || !selectedDriveId}
+              disabled={!selectedDriveId}
             >
-              <Icon name="upload" size={13} /><span>{isUploading ? "Uploading..." : "Upload files"}</span>
+              <Icon name="upload" size={13} /><span>Upload files</span>
             </button>
           </div>
 
@@ -368,7 +370,7 @@ export function ProjectDetailClient({ project, fileGroups, shareLinks, drives }:
                       type="button"
                       onClick={() => {
                         navigator.clipboard.writeText(`${window.location.origin}/share/${l.token}`);
-                        alert("Copied to clipboard!");
+                        toast.success("Copied to clipboard");
                       }}
                       style={{ cursor: "pointer", background: "none", border: "none", color: "inherit", padding: 0, display: "flex" }}
                       title="Copy to clipboard"
@@ -381,7 +383,7 @@ export function ProjectDetailClient({ project, fileGroups, shareLinks, drives }:
                     <div><dt className="mono">EXPIRES</dt><dd>{l.expires_at ? new Date(l.expires_at).toLocaleDateString() : 'Never'}</dd></div>
                   </dl>
                   <div style={{ display: "flex", gap: 6, marginTop: 2 }}>
-                    <button type="button" className="btn btn-ghost btn-sm" style={{ color: "var(--error)", width: "100%", justifyContent: "center" }} onClick={() => handleRevokeShare(l.id)}>
+                    <button type="button" className="btn btn-ghost btn-sm" style={{ color: "var(--danger)", width: "100%", justifyContent: "center" }} onClick={() => handleRevokeShare(l.id)}>
                       <Icon name="trash" size={12} /><span>Revoke</span>
                     </button>
                   </div>
@@ -400,13 +402,12 @@ export function ProjectDetailClient({ project, fileGroups, shareLinks, drives }:
         </div>
       </div>
 
-      {openShare && (
-        <ShareModal
-          projectId={project.id}
-          onClose={() => setOpenShare(false)}
-          onSuccess={() => { setOpenShare(false); router.refresh(); }}
-        />
-      )}
+      <ShareModal
+        open={openShare}
+        projectId={project.id}
+        onClose={() => setOpenShare(false)}
+        onSuccess={() => { setOpenShare(false); router.refresh(); }}
+      />
       {openNasPicker && (
         <NASPickerModal
           projectId={project.id}
@@ -414,6 +415,26 @@ export function ProjectDetailClient({ project, fileGroups, shareLinks, drives }:
           onAttached={() => { setOpenNasPicker(false); router.refresh(); }}
         />
       )}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(v) => { if (!v) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {deleteTarget?.type === "file" ? "Delete file?" : "Revoke share link?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget?.type === "file"
+                ? `"${deleteTarget.label}" will be permanently deleted from all versions.`
+                : "This share link will stop working immediately."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} style={{ background: "var(--danger)" }}>
+              {deleteTarget?.type === "file" ? "Delete" : "Revoke"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

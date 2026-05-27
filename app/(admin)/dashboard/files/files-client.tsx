@@ -3,8 +3,19 @@
 import { useState, useRef, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
+import { toast } from "sonner";
 import {
-  uploadFileToNAS,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  getAllFiles,
   addExistingFileToProject,
   type FileGroup,
 } from "@/app/actions/files";
@@ -14,6 +25,7 @@ import {
   deleteFolder,
   type NASFolder,
 } from "@/app/actions/folders";
+import { useUploadContext } from "@/contexts/upload-context";
 import { type Drive } from "@/lib/drives";
 import Link from "next/link";
 
@@ -26,8 +38,11 @@ function formatBytes(bytes: number, decimals = 2) {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 }
 
+const PAGE_SIZE = 50;
+
 interface Props {
   groups: FileGroup[];
+  total: number;
   drives: Drive[];
   projects: { id: string; name: string }[];
   folders: NASFolder[];
@@ -35,12 +50,15 @@ interface Props {
   currentFolderId?: string;
 }
 
-export function AllFilesClient({ groups, drives, projects, folders, breadcrumb, currentFolderId }: Props) {
+export function AllFilesClient({ groups, total, drives, projects, folders, breadcrumb, currentFolderId }: Props) {
   const router = useRouter();
+  const { addUpload } = useUploadContext();
   const [, startTransition] = useTransition();
+  const [loadedGroups, setLoadedGroups] = useState(groups);
+  const [totalCount, setTotalCount] = useState(total);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [query, setQuery] = useState("");
   const [driveFilter, setDriveFilter] = useState("");
-  const [isUploading, setIsUploading] = useState(false);
   const [uploadDriveId, setUploadDriveId] = useState(drives[0]?.id ?? "");
   const [attachingRootId, setAttachingRootId] = useState<string | null>(null);
   const [newFolderMode, setNewFolderMode] = useState(false);
@@ -48,35 +66,45 @@ export function AllFilesClient({ groups, drives, projects, folders, breadcrumb, 
   const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
   const [renameName, setRenameName] = useState("");
   const [folderMenuId, setFolderMenuId] = useState<string | null>(null);
+  const [deleteFolderTarget, setDeleteFolderTarget] = useState<NASFolder | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const filtered = groups.filter((g) => {
+  const filtered = loadedGroups.filter((g) => {
     if (query && !g.filename.toLowerCase().includes(query.toLowerCase())) return false;
     if (driveFilter && g.drive_name !== driveFilter) return false;
     return true;
   });
 
-  const driveNames = Array.from(new Set(groups.map((g) => g.drive_name).filter(Boolean))) as string[];
+  const driveNames = Array.from(new Set(loadedGroups.map((g) => g.drive_name).filter(Boolean))) as string[];
+
+  const hasMore = loadedGroups.length < totalCount;
+
+  const handleLoadMore = async () => {
+    setIsLoadingMore(true);
+    try {
+      const { groups: next, total: newTotal } = await getAllFiles({
+        folderId: currentFolderId,
+        limit: PAGE_SIZE,
+        offset: loadedGroups.length,
+      });
+      setLoadedGroups((prev) => [...prev, ...next]);
+      setTotalCount(newTotal);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to load more");
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
 
   const handleDownload = (fileId: string) => {
     window.open(`/api/download/${fileId}`, "_blank");
   };
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !uploadDriveId) return;
-    setIsUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      await uploadFileToNAS(uploadDriveId, formData, currentFolderId);
-      router.refresh();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Upload failed");
-    } finally {
-      setIsUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
+    addUpload(file, uploadDriveId, undefined, currentFolderId);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const handleAttach = (rootId: string, projectId: string) => {
@@ -86,7 +114,7 @@ export function AllFilesClient({ groups, drives, projects, folders, breadcrumb, 
         setAttachingRootId(null);
         router.refresh();
       } catch (err) {
-        alert(err instanceof Error ? err.message : "Failed to attach file");
+        toast.error(err instanceof Error ? err.message : "Failed to attach file");
       }
     });
   };
@@ -100,7 +128,7 @@ export function AllFilesClient({ groups, drives, projects, folders, breadcrumb, 
       setNewFolderMode(false);
       router.refresh();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to create folder");
+      toast.error(err instanceof Error ? err.message : "Failed to create folder");
     }
   };
 
@@ -112,18 +140,20 @@ export function AllFilesClient({ groups, drives, projects, folders, breadcrumb, 
       setRenamingFolderId(null);
       router.refresh();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to rename folder");
+      toast.error(err instanceof Error ? err.message : "Failed to rename folder");
     }
   };
 
-  const handleDeleteFolder = async (id: string) => {
-    if (!confirm("Delete this folder and all its contents?")) return;
+  const confirmDeleteFolder = async () => {
+    if (!deleteFolderTarget) return;
+    const id = deleteFolderTarget.id;
+    setDeleteFolderTarget(null);
+    setFolderMenuId(null);
     try {
       await deleteFolder(id);
-      setFolderMenuId(null);
       router.refresh();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to delete folder");
+      toast.error(err instanceof Error ? err.message : "Failed to delete folder");
     }
   };
 
@@ -156,7 +186,7 @@ export function AllFilesClient({ groups, drives, projects, folders, breadcrumb, 
       <div className="page-h">
         <div>
           <h1>{breadcrumb.length > 0 ? breadcrumb[breadcrumb.length - 1].name : "All files"}</h1>
-          <div className="sub">{groups.length} files · {folders.length} folders · NAS</div>
+          <div className="sub">{totalCount} files · {folders.length} folders · NAS</div>
         </div>
       </div>
 
@@ -291,7 +321,7 @@ export function AllFilesClient({ groups, drives, projects, folders, breadcrumb, 
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleDeleteFolder(folder.id)}
+                          onClick={() => setDeleteFolderTarget(folder)}
                           style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 12px", background: "none", border: "none", color: "var(--danger)", fontSize: 13, cursor: "default", textAlign: "left" }}
                         >
                           <Icon name="trash" size={13} /> Delete
@@ -368,9 +398,9 @@ export function AllFilesClient({ groups, drives, projects, folders, breadcrumb, 
               type="button"
               className="btn btn-primary btn-sm"
               onClick={() => fileInputRef.current?.click()}
-              disabled={isUploading || !uploadDriveId}
+              disabled={!uploadDriveId}
             >
-              <Icon name="upload" size={13} /><span>{isUploading ? "Uploading…" : "Upload to NAS"}</span>
+              <Icon name="upload" size={13} /><span>Upload to NAS</span>
             </button>
           </>
         )}
@@ -471,6 +501,19 @@ export function AllFilesClient({ groups, drives, projects, folders, breadcrumb, 
         ))}
       </div>
 
+      {hasMore && (
+        <div style={{ display: "flex", justifyContent: "center", marginTop: 16 }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={handleLoadMore}
+            disabled={isLoadingMore}
+          >
+            {isLoadingMore ? "Loading…" : `Load more (${totalCount - loadedGroups.length} remaining)`}
+          </button>
+        </div>
+      )}
+
       {/* Close dropdowns on outside click */}
       {(attachingRootId || folderMenuId) && (
         <div
@@ -478,6 +521,23 @@ export function AllFilesClient({ groups, drives, projects, folders, breadcrumb, 
           onClick={() => { setAttachingRootId(null); setFolderMenuId(null); }}
         />
       )}
+
+      <AlertDialog open={!!deleteFolderTarget} onOpenChange={(v) => { if (!v) setDeleteFolderTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete folder?</AlertDialogTitle>
+            <AlertDialogDescription>
+              &ldquo;{deleteFolderTarget?.name}&rdquo; and all its contents will be permanently deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeleteFolder} style={{ background: "var(--danger)" }}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

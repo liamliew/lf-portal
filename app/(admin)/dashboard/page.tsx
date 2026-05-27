@@ -1,5 +1,8 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Topbar } from "@/components/topbar";
+
+export const metadata: Metadata = { title: "Dashboard — LF Creative" };
 import { Icon } from "@/components/icon";
 import { auth } from "@clerk/nextjs/server";
 import { supabase } from "@/lib/supabase";

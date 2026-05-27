@@ -94,28 +94,73 @@ export async function getFilesForProject(projectId: string): Promise<FileGroup[]
   return buildGroups(rawFiles)
 }
 
-export async function getAllFiles(folderId?: string): Promise<FileGroup[]> {
+export async function getAllFiles(opts?: {
+  folderId?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ groups: FileGroup[]; total: number }> {
   const { userId } = await auth()
   if (!userId) throw new Error('Unauthorized')
 
-  const query = supabase
+  const folderId = opts?.folderId
+  const limit = opts?.limit
+  const offset = opts?.offset ?? 0
+
+  // Count total root files for pagination metadata
+  const countQuery = supabase
+    .from('files')
+    .select('id', { count: 'exact', head: true })
+    .eq('uploaded_by', userId)
+    .is('parent_id', null)
+
+  if (folderId) {
+    countQuery.eq('folder_id', folderId)
+  } else {
+    countQuery.is('folder_id', null)
+  }
+
+  const { count } = await countQuery
+  const total = count ?? 0
+
+  // Fetch root files (optionally paginated)
+  const rootQuery = supabase
     .from('files')
     .select('*, drives(name)')
     .eq('uploaded_by', userId)
-    .order('uploaded_at', { ascending: false })
+    .is('parent_id', null)
+    .order('filename', { ascending: true })
 
   if (folderId) {
-    query.eq('folder_id', folderId)
+    rootQuery.eq('folder_id', folderId)
   } else {
-    query.is('folder_id', null)
+    rootQuery.is('folder_id', null)
   }
 
-  const { data, error } = await query
-  if (error) throw new Error(error.message)
+  if (limit !== undefined) {
+    rootQuery.range(offset, offset + limit - 1)
+  }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rawFiles: RawFile[] = (data ?? []).map((f: any) => ({ ...f, drive_name: f.drives?.name }))
-  return buildGroups(rawFiles)
+  const { data: roots, error: rootError } = await rootQuery
+  if (rootError) throw new Error(rootError.message)
+
+  if (!roots || roots.length === 0) return { groups: [], total }
+
+  const rootIds = roots.map((r: { id: string }) => r.id)
+
+  const { data: children, error: childError } = await supabase
+    .from('files')
+    .select('*, drives(name)')
+    .in('parent_id', rootIds)
+    .order('uploaded_at', { ascending: true })
+
+  if (childError) throw new Error(childError.message)
+
+  const rawFiles: RawFile[] = [
+    ...roots.map((f: any) => ({ ...f, drive_name: f.drives?.name })), // eslint-disable-line @typescript-eslint/no-explicit-any
+    ...(children ?? []).map((f: any) => ({ ...f, drive_name: f.drives?.name })), // eslint-disable-line @typescript-eslint/no-explicit-any
+  ]
+
+  return { groups: buildGroups(rawFiles), total }
 }
 
 export async function uploadFileToProject(projectId: string, driveId: string, formData: FormData) {

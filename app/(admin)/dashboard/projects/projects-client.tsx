@@ -4,7 +4,8 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
-import { createProject, deleteProject } from "@/app/actions/projects";
+import { toast } from "sonner";
+import { createProject, deleteProject, getProjects, type ProjectWithStats } from "@/app/actions/projects";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -15,6 +16,16 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 function formatBytes(bytes: number, decimals = 2) {
   if (!+bytes) return "0 B";
@@ -25,23 +36,13 @@ function formatBytes(bytes: number, decimals = 2) {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 }
 
-type Project = {
-  id: string;
-  name: string;
-  description?: string;
-  fileCount: number;
-  totalSize: number;
-  activeLinks: number;
-  created_at: string;
-};
-
 function ProjectRow({
   project,
   onDelete,
   isPending,
 }: {
-  project: Project;
-  onDelete: (e: React.MouseEvent, id: string) => void;
+  project: ProjectWithStats;
+  onDelete: (e: React.MouseEvent, id: string, name: string) => void;
   isPending: boolean;
 }) {
   return (
@@ -73,7 +74,7 @@ function ProjectRow({
           </div>
           <button
             type="button"
-            onClick={(e) => onDelete(e, project.id)}
+            onClick={(e) => onDelete(e, project.id, project.name)}
             style={{ background: "transparent", border: "none", color: "var(--danger)", cursor: "pointer", padding: 8, borderRadius: 4, display: "flex", alignItems: "center" }}
             title="Delete project"
           >
@@ -100,12 +101,24 @@ function Stat({ label, value, dim }: { label: string; value: string; dim?: boole
   );
 }
 
-export function ProjectsClient({ initialProjects }: { initialProjects: Project[] }) {
+interface ProjectsClientProps {
+  initialProjects: ProjectWithStats[];
+  total: number;
+  pageSize: number;
+}
+
+export function ProjectsClient({ initialProjects, total, pageSize }: ProjectsClientProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [projects, setProjects] = useState(initialProjects);
+  const [totalCount, setTotalCount] = useState(total);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+  const hasMore = projects.length < totalCount;
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -117,24 +130,42 @@ export function ProjectsClient({ initialProjects }: { initialProjects: Project[]
         setDescription("");
         router.refresh();
       } catch (err) {
-        console.error(err);
-        alert("Failed to create project");
+        toast.error(err instanceof Error ? err.message : "Failed to create project");
       }
     });
   };
 
-  const handleDelete = async (e: React.MouseEvent, id: string) => {
+  const handleDelete = (e: React.MouseEvent, id: string, projectName: string) => {
     e.preventDefault();
-    if (!confirm("Delete this project and all its files?")) return;
+    setDeleteTarget({ id, name: projectName });
+  };
+
+  const confirmDelete = () => {
+    if (!deleteTarget) return;
+    const id = deleteTarget.id;
+    setDeleteTarget(null);
     startTransition(async () => {
       try {
         await deleteProject(id);
+        toast.success("Project deleted");
         router.refresh();
       } catch (err) {
-        console.error(err);
-        alert("Failed to delete project");
+        toast.error(err instanceof Error ? err.message : "Failed to delete project");
       }
     });
+  };
+
+  const handleLoadMore = async () => {
+    setIsLoadingMore(true);
+    try {
+      const { projects: next, total: newTotal } = await getProjects({ limit: pageSize, offset: projects.length });
+      setProjects((prev) => [...prev, ...next]);
+      setTotalCount(newTotal);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to load more");
+    } finally {
+      setIsLoadingMore(false);
+    }
   };
 
   return (
@@ -142,7 +173,7 @@ export function ProjectsClient({ initialProjects }: { initialProjects: Project[]
       <div className="page-h">
         <div>
           <h1>Projects</h1>
-          <div className="sub">{initialProjects.length} total</div>
+          <div className="sub">{totalCount} total</div>
         </div>
         <Button onClick={() => setDialogOpen(true)}>
           <Icon name="plus" size={14} />
@@ -156,21 +187,46 @@ export function ProjectsClient({ initialProjects }: { initialProjects: Project[]
             All
           </span>
           <span className="mono" style={{ fontSize: 11, color: "var(--text-faint)", background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 4, padding: "1px 6px" }}>
-            {initialProjects.length}
+            {totalCount}
           </span>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          {initialProjects.length === 0 && (
+          {projects.length === 0 && (
             <div style={{ color: "var(--text-muted)", fontSize: 13, padding: "16px 0" }}>
               No projects yet. Create your first one.
             </div>
           )}
-          {initialProjects.map((p) => (
-            <ProjectRow key={p.id} project={p} onDelete={handleDelete} isPending={isPending} />
+          {projects.map((p) => (
+            <ProjectRow key={p.id} project={p} onDelete={(e, id) => handleDelete(e, id, p.name)} isPending={isPending} />
           ))}
         </div>
+
+        {hasMore && (
+          <div style={{ display: "flex", justifyContent: "center", marginTop: 16 }}>
+            <Button variant="outline" onClick={handleLoadMore} disabled={isLoadingMore}>
+              {isLoadingMore ? "Loading…" : `Load more (${totalCount - projects.length} remaining)`}
+            </Button>
+          </div>
+        )}
       </div>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(v) => { if (!v) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete project?</AlertDialogTitle>
+            <AlertDialogDescription>
+              &ldquo;{deleteTarget?.name}&rdquo; and all its files will be permanently deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} style={{ background: "var(--danger)" }}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
