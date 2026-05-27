@@ -1,7 +1,14 @@
-import type { NextConfig } from "next";
+import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
-  /* config options here */
-};
+  allowedDevOrigins: ['3000.indwo.org'],
+  experimental: {
+    proxyClientMaxBodySize: '10gb',
+    serverActions: {
+      bodySizeLimit: '10gb',
+      
+    },
+  },
+}
 
-export default nextConfig;
+export default nextConfig

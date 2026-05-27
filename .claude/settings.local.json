@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:api.anthropic.com)",
+      "PowerShell($toolDir = \"C:\\\\Users\\\\wjlie\\\\.claude\\\\projects\\\\c--Users-wjlie-OneDrive-Documents---VS-CODE-lf-portal\\\\06a3508f-1dda-4f56-9989-7af98ab64b08\\\\tool-results\"; Copy-Item \"$toolDir\\\\webfetch-1778943714115-a54i4f.bin\" \"$toolDir\\\\design.gz\"; & \"C:\\\\Program Files\\\\Git\\\\usr\\\\bin\\\\gzip.exe\" -d \"$toolDir\\\\design.gz\" 2>&1; if \\(Test-Path \"$toolDir\\\\design\"\\) { Get-Content \"$toolDir\\\\design\" -Encoding utf8 | Select-Object -First 200 })",
+      "PowerShell($binFile = \"C:\\\\Users\\\\wjlie\\\\.claude\\\\projects\\\\c--Users-wjlie-OneDrive-Documents---VS-CODE-lf-portal\\\\06a3508f-1dda-4f56-9989-7af98ab64b08\\\\tool-results\\\\webfetch-1778943714115-a54i4f.bin\"; $outDir = \"C:\\\\Users\\\\wjlie\\\\AppData\\\\Local\\\\Temp\\\\lf-design2\"; New-Item -ItemType Directory -Force $outDir | Out-Null; $result = & \"C:\\\\Program Files\\\\Git\\\\usr\\\\bin\\\\tar.exe\" -xzf $binFile -C $outDir 2>&1; Write-Output \"tar result: $result\"; Get-ChildItem -Recurse $outDir | Select-Object FullName)",
+      "Bash(mkdir -p /tmp/lf-design)",
+      "Bash(tar -xzf \"C:/Users/wjlie/.claude/projects/c--Users-wjlie-OneDrive-Documents---VS-CODE-lf-portal/06a3508f-1dda-4f56-9989-7af98ab64b08/tool-results/webfetch-1778943714115-a54i4f.bin\" -C /tmp/lf-design)",
+      "Read(//tmp/**)",
+      "Bash(find \"/mnt/c/Users/wjlie/OneDrive/Documents/! VS CODE/lf-portal/app\" -type f 2>/dev/null || ls \"C:/Users/wjlie/OneDrive/Documents/! VS CODE/lf-portal/app\" 2>/dev/null; ls \"C:/Users/wjlie/OneDrive/Documents/! VS CODE/lf-portal/\" 2>/dev/null | head -30)",
+      "Read(//mnt/c/Users/wjlie/OneDrive/Documents/! VS CODE/lf-portal/**)",
+      "PowerShell($nextDir = \"C:\\\\Users\\\\wjlie\\\\OneDrive\\\\Documents\\\\! VS CODE\\\\lf-portal\\\\node_modules\\\\next\"; Get-ChildItem $nextDir | Select-Object Name | Select-Object -First 20; Write-Output \"---\"; Get-Item \"$nextDir\\\\package.json\" | Select-Object @{N='version';E={\\(Get-Content $_.FullName | ConvertFrom-Json\\).version}})",
+      "PowerShell($p = \"C:\\\\Users\\\\wjlie\\\\OneDrive\\\\Documents\\\\! VS CODE\\\\lf-portal\\\\node_modules\\\\@clerk\\\\nextjs\\\\package.json\"; if \\(Test-Path $p\\) { \\(Get-Content $p -Raw | ConvertFrom-Json\\).version } else { \"not found\" })",
+      "PowerShell($clerkDir = \"C:\\\\Users\\\\wjlie\\\\OneDrive\\\\Documents\\\\! VS CODE\\\\lf-portal\\\\node_modules\\\\@clerk\\\\nextjs\"; Get-ChildItem $clerkDir | Select-Object Name; $exports = \\(Get-Content \"$clerkDir\\\\package.json\" -Raw | ConvertFrom-Json\\).exports; $exports | ConvertTo-Json -Depth 3 | Select-Object -First 60)"
+    ]
+  }
+}
