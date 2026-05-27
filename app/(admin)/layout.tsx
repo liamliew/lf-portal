@@ -1,35 +1,16 @@
-import { auth } from "@clerk/nextjs/server";
-import { Sidebar } from "@/components/sidebar";
-import { supabase } from "@/lib/supabase";
+import { AppSidebar } from "@/components/sidebar";
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
-export default async function AdminLayout({ children }: { children: React.ReactNode }) {
-  const { userId } = await auth();
-
-  let projectCount = 0;
-  let shareCount = 0;
-
-  if (userId) {
-    const { data: projects } = await supabase
-      .from("projects")
-      .select("id")
-      .eq("created_by", userId);
-
-    const projectIds = (projects ?? []).map((p: { id: string }) => p.id);
-    projectCount = projectIds.length;
-
-    if (projectIds.length > 0) {
-      const { count } = await supabase
-        .from("project_shares")
-        .select("*", { count: "exact", head: true })
-        .in("project_id", projectIds);
-      shareCount = count ?? 0;
-    }
-  }
-
+export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="app">
-      <Sidebar projectCount={projectCount} shareCount={shareCount} />
-      <main className="main">{children}</main>
-    </div>
+    <TooltipProvider>
+      <SidebarProvider>
+        <AppSidebar />
+        <SidebarInset>
+          {children}
+        </SidebarInset>
+      </SidebarProvider>
+    </TooltipProvider>
   );
 }

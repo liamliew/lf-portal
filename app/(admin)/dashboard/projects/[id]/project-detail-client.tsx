@@ -3,6 +3,7 @@
 import { useState, useRef, useTransition, useEffect } from "react";
 import { Icon } from "@/components/icon";
 import { ShareModal } from "@/components/share-modal";
+import { addRecentProject } from "@/components/sidebar";
 import {
   uploadFileToProject,
   deleteFile,
@@ -176,6 +177,10 @@ export function ProjectDetailClient({ project, fileGroups, shareLinks, drives }:
   const [isUploading, setIsUploading] = useState(false);
   const [selectedDriveId, setSelectedDriveId] = useState(drives[0]?.id ?? "");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    addRecentProject({ id: project.id, name: project.name });
+  }, [project.id, project.name]);
 
   const toggle = (rootId: string) => {
     const s = new Set(selected);

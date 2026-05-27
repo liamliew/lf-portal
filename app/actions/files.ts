@@ -94,16 +94,23 @@ export async function getFilesForProject(projectId: string): Promise<FileGroup[]
   return buildGroups(rawFiles)
 }
 
-export async function getAllFiles(): Promise<FileGroup[]> {
+export async function getAllFiles(folderId?: string): Promise<FileGroup[]> {
   const { userId } = await auth()
   if (!userId) throw new Error('Unauthorized')
 
-  const { data, error } = await supabase
+  const query = supabase
     .from('files')
     .select('*, drives(name)')
     .eq('uploaded_by', userId)
     .order('uploaded_at', { ascending: false })
 
+  if (folderId) {
+    query.eq('folder_id', folderId)
+  } else {
+    query.is('folder_id', null)
+  }
+
+  const { data, error } = await query
   if (error) throw new Error(error.message)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -200,7 +207,7 @@ export async function uploadFileToProject(projectId: string, driveId: string, fo
   return newFile
 }
 
-export async function uploadFileToNAS(driveId: string, formData: FormData) {
+export async function uploadFileToNAS(driveId: string, formData: FormData, folderId?: string) {
   const { userId } = await auth()
   if (!userId) throw new Error('Unauthorized')
 
@@ -253,6 +260,7 @@ export async function uploadFileToNAS(driveId: string, formData: FormData) {
       mime_type: file.type || 'application/octet-stream',
       parent_id: rootFileId,
       uploaded_by: userId,
+      folder_id: folderId ?? null,
     }])
     .select()
     .single()

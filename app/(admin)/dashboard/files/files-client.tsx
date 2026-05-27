@@ -1,14 +1,21 @@
 "use client";
 
 import { useState, useRef, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
 import {
   uploadFileToNAS,
   addExistingFileToProject,
   type FileGroup,
 } from "@/app/actions/files";
+import {
+  createFolder,
+  renameFolder,
+  deleteFolder,
+  type NASFolder,
+} from "@/app/actions/folders";
 import { type Drive } from "@/lib/drives";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 function formatBytes(bytes: number, decimals = 2) {
   if (!+bytes) return "0 Bytes";
@@ -23,9 +30,12 @@ interface Props {
   groups: FileGroup[];
   drives: Drive[];
   projects: { id: string; name: string }[];
+  folders: NASFolder[];
+  breadcrumb: NASFolder[];
+  currentFolderId?: string;
 }
 
-export function AllFilesClient({ groups, drives, projects }: Props) {
+export function AllFilesClient({ groups, drives, projects, folders, breadcrumb, currentFolderId }: Props) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [query, setQuery] = useState("");
@@ -33,6 +43,11 @@ export function AllFilesClient({ groups, drives, projects }: Props) {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadDriveId, setUploadDriveId] = useState(drives[0]?.id ?? "");
   const [attachingRootId, setAttachingRootId] = useState<string | null>(null);
+  const [newFolderMode, setNewFolderMode] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
+  const [renameName, setRenameName] = useState("");
+  const [folderMenuId, setFolderMenuId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const filtered = groups.filter((g) => {
@@ -54,7 +69,7 @@ export function AllFilesClient({ groups, drives, projects }: Props) {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      await uploadFileToNAS(uploadDriveId, formData);
+      await uploadFileToNAS(uploadDriveId, formData, currentFolderId);
       router.refresh();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Upload failed");
@@ -76,15 +91,235 @@ export function AllFilesClient({ groups, drives, projects }: Props) {
     });
   };
 
+  const handleCreateFolder = async () => {
+    const name = newFolderName.trim();
+    if (!name) return;
+    try {
+      await createFolder(name, currentFolderId, drives[0]?.id);
+      setNewFolderName("");
+      setNewFolderMode(false);
+      router.refresh();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to create folder");
+    }
+  };
+
+  const handleRenameFolder = async (id: string) => {
+    const name = renameName.trim();
+    if (!name) return;
+    try {
+      await renameFolder(id, name);
+      setRenamingFolderId(null);
+      router.refresh();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to rename folder");
+    }
+  };
+
+  const handleDeleteFolder = async (id: string) => {
+    if (!confirm("Delete this folder and all its contents?")) return;
+    try {
+      await deleteFolder(id);
+      setFolderMenuId(null);
+      router.refresh();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to delete folder");
+    }
+  };
+
   return (
     <>
+      {/* Breadcrumb */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 20, fontSize: 13 }}>
+        <Link
+          href="/dashboard/files"
+          style={{ color: breadcrumb.length === 0 ? "var(--text-strong)" : "var(--text-muted)", fontWeight: breadcrumb.length === 0 ? 600 : 400 }}
+        >
+          NAS
+        </Link>
+        {breadcrumb.map((crumb, i) => (
+          <span key={crumb.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <Icon name="chevron_right" size={12} style={{ color: "var(--text-faint)" }} />
+            <Link
+              href={`/dashboard/files?folderId=${crumb.id}`}
+              style={{
+                color: i === breadcrumb.length - 1 ? "var(--text-strong)" : "var(--text-muted)",
+                fontWeight: i === breadcrumb.length - 1 ? 600 : 400,
+              }}
+            >
+              {crumb.name}
+            </Link>
+          </span>
+        ))}
+      </div>
+
       <div className="page-h">
         <div>
-          <h1>All files</h1>
-          <div className="sub">{groups.length} files · NAS</div>
+          <h1>{breadcrumb.length > 0 ? breadcrumb[breadcrumb.length - 1].name : "All files"}</h1>
+          <div className="sub">{groups.length} files · {folders.length} folders · NAS</div>
         </div>
       </div>
 
+      {/* Folder grid */}
+      {(folders.length > 0 || newFolderMode) && (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <span style={{ fontSize: 12, fontFamily: "var(--font-mono)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              Folders
+            </span>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => { setNewFolderMode(true); setNewFolderName(""); }}
+            >
+              <Icon name="plus" size={12} /><span>New folder</span>
+            </button>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10 }}>
+            {newFolderMode && (
+              <div style={{
+                padding: "14px", border: "1.5px dashed var(--border-2)", borderRadius: 10,
+                background: "var(--surface)", display: "flex", flexDirection: "column", gap: 8,
+              }}>
+                <input
+                  autoFocus
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleCreateFolder();
+                    if (e.key === "Escape") { setNewFolderMode(false); setNewFolderName(""); }
+                  }}
+                  placeholder="Folder name"
+                  style={{
+                    border: "1px solid var(--border)", borderRadius: 6, padding: "4px 8px",
+                    fontSize: 13, outline: "none", background: "var(--surface-2)",
+                  }}
+                />
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button type="button" className="btn btn-primary btn-sm" onClick={handleCreateFolder} style={{ flex: 1, justifyContent: "center" }}>Create</button>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setNewFolderMode(false); setNewFolderName(""); }}>Cancel</button>
+                </div>
+              </div>
+            )}
+            {folders.map((folder) => (
+              <div key={folder.id} style={{ position: "relative" }}>
+                {renamingFolderId === folder.id ? (
+                  <div style={{
+                    padding: "14px", border: "1.5px solid var(--accent-deep)", borderRadius: 10,
+                    background: "var(--surface)", display: "flex", flexDirection: "column", gap: 8,
+                  }}>
+                    <input
+                      autoFocus
+                      value={renameName}
+                      onChange={(e) => setRenameName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleRenameFolder(folder.id);
+                        if (e.key === "Escape") setRenamingFolderId(null);
+                      }}
+                      style={{
+                        border: "1px solid var(--border)", borderRadius: 6, padding: "4px 8px",
+                        fontSize: 13, outline: "none", background: "var(--surface-2)",
+                      }}
+                    />
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button type="button" className="btn btn-primary btn-sm" onClick={() => handleRenameFolder(folder.id)} style={{ flex: 1, justifyContent: "center" }}>Save</button>
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => setRenamingFolderId(null)}>Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      padding: "14px", border: "1px solid var(--border)", borderRadius: 10,
+                      background: "var(--surface)", cursor: "default",
+                      transition: "border-color 0.12s, box-shadow 0.12s",
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLDivElement).style.borderColor = "var(--border-2)";
+                      (e.currentTarget as HTMLDivElement).style.boxShadow = "var(--shadow-sm)";
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLDivElement).style.borderColor = "var(--border)";
+                      (e.currentTarget as HTMLDivElement).style.boxShadow = "none";
+                    }}
+                  >
+                    <div
+                      style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 10 }}
+                    >
+                      <div
+                        style={{ cursor: "default" }}
+                        onClick={() => router.push(`/dashboard/files?folderId=${folder.id}`)}
+                      >
+                        <div style={{
+                          width: 36, height: 36, borderRadius: 8,
+                          background: "var(--accent-soft)", color: "var(--accent-ink)",
+                          display: "grid", placeItems: "center",
+                        }}>
+                          <Icon name="folder" size={18} />
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="file-action"
+                        onClick={(e) => { e.stopPropagation(); setFolderMenuId(folderMenuId === folder.id ? null : folder.id); }}
+                      >
+                        <Icon name="more" size={14} />
+                      </button>
+                    </div>
+                    <div
+                      onClick={() => router.push(`/dashboard/files?folderId=${folder.id}`)}
+                      style={{ cursor: "default" }}
+                    >
+                      <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-strong)", marginBottom: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {folder.name}
+                      </div>
+                      <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-muted)" }}>
+                        {folder.file_count ?? 0} files · {new Date(folder.created_at).toLocaleDateString()}
+                      </div>
+                    </div>
+                    {folderMenuId === folder.id && (
+                      <div style={{
+                        position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 20,
+                        background: "var(--surface)", border: "1px solid var(--border)",
+                        borderRadius: 8, minWidth: 140, boxShadow: "var(--shadow-md)", padding: "4px 0",
+                      }}>
+                        <button
+                          type="button"
+                          onClick={() => { setRenamingFolderId(folder.id); setRenameName(folder.name); setFolderMenuId(null); }}
+                          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 12px", background: "none", border: "none", color: "var(--text-strong)", fontSize: 13, cursor: "default", textAlign: "left" }}
+                        >
+                          <Icon name="edit" size={13} /> Rename
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteFolder(folder.id)}
+                          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 12px", background: "none", border: "none", color: "var(--danger)", fontSize: 13, cursor: "default", textAlign: "left" }}
+                        >
+                          <Icon name="trash" size={13} /> Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* New folder button when there are no folders yet */}
+      {folders.length === 0 && !newFolderMode && (
+        <div style={{ marginBottom: 16 }}>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => { setNewFolderMode(true); setNewFolderName(""); }}
+          >
+            <Icon name="plus" size={12} /><span>New folder</span>
+          </button>
+        </div>
+      )}
+
+      {/* Files toolbar */}
       <div className="toolbar" style={{ marginBottom: 16 }}>
         <div className="toolbar-search">
           <span className="toolbar-search-icon"><Icon name="search" size={13} /></span>
@@ -141,6 +376,7 @@ export function AllFilesClient({ groups, drives, projects }: Props) {
         )}
       </div>
 
+      {/* Files table */}
       <div className="file-table">
         <div
           className="file-table-hd"
@@ -156,7 +392,7 @@ export function AllFilesClient({ groups, drives, projects }: Props) {
 
         {filtered.length === 0 && (
           <div style={{ padding: "32px", textAlign: "center", color: "var(--text-muted)" }}>
-            {query || driveFilter ? "No files match your filters." : "No files uploaded yet."}
+            {query || driveFilter ? "No files match your filters." : "No files in this folder."}
           </div>
         )}
 
@@ -222,7 +458,7 @@ export function AllFilesClient({ groups, drives, projects }: Props) {
                       style={{
                         display: "block", width: "100%", textAlign: "left",
                         padding: "8px 14px", background: "none", border: "none",
-                        color: "var(--text-strong)", fontSize: 13, cursor: "pointer",
+                        color: "var(--text-strong)", fontSize: 13, cursor: "default",
                       }}
                     >
                       {p.name}
@@ -235,11 +471,11 @@ export function AllFilesClient({ groups, drives, projects }: Props) {
         ))}
       </div>
 
-      {/* Close attach dropdown on outside click */}
-      {attachingRootId && (
+      {/* Close dropdowns on outside click */}
+      {(attachingRootId || folderMenuId) && (
         <div
           style={{ position: "fixed", inset: 0, zIndex: 19 }}
-          onClick={() => setAttachingRootId(null)}
+          onClick={() => { setAttachingRootId(null); setFolderMenuId(null); }}
         />
       )}
     </>
